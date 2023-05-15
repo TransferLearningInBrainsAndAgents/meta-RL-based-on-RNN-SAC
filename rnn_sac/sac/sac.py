@@ -1,7 +1,8 @@
 import copy
 import time
 import itertools
-
+from datetime import datetime
+import os
 import numpy as np
 
 import torch
@@ -15,11 +16,11 @@ from rnn_sac.utils.logx import EpochLogger
 
 
 class SAC:
-    def __init__(self, env, logger_kwargs=dict(), seed=42,
+    def __init__(self, env, logger_kwargs=dict(), seed=42, max_ep_len=2000,
                  save_freq=1, gamma=0.99, lr=1e-4, ac_kwargs=dict(),
                  polyak=0.995, steps_per_epoch=4000, epochs=1, batch_size=16,
                  replay_size=int(1e6), time_step=50, hidden_size=256,
-                 start_steps=10000, update_after=1000, update_every=50,
+                 start_steps=1000, update_after=1000, update_every=50,
                  exploration_sampling=False, clip_ratio=1.0,
                  number_of_trajectories=100, use_alpha_annealing=False):
 
@@ -35,7 +36,7 @@ class SAC:
 
         self.save_freq = save_freq
 
-        self.max_ep_len = 200
+        self.max_ep_len = max_ep_len
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
@@ -170,6 +171,7 @@ class SAC:
         mean_q1 = q1.detach().mean().item()
         mean_q2 = q1.detach().mean().item()
         q_info = dict(Q1Vals=mean_q1, Q2Vals=mean_q2)
+        #self.logger.store(Q1Vals=mean_q1, Q2Vals=mean_q2)
 
         return loss_q, q_info
 
@@ -298,7 +300,8 @@ class SAC:
                 a, h = self.get_action(
                     o, a2, r2, h, greedy=True)
 
-                o2, r, d, _ = self.test_env.step(a)
+                o2, r, ter, trunc, info = self.env.step(a)
+                d = ter or trunc
 
                 o = o2
                 r2 = r
@@ -322,12 +325,11 @@ class SAC:
             # Inbetween trials reset the hidden weights
             h_in = torch.zeros([1, 1, self.hidden_size]).to(self.device)
             h_out = torch.zeros([1, 1, self.hidden_size]).to(self.device)
-
             # To sample k trajectories
             for tr in range(self.number_of_trajectories):
                 d, ep_ret, ep_len, ep_max_acc = False, 0, 0, 0
-                o = self.env.reset()
-
+                o, info = self.env.reset()
+                print('Trajectory = {}, Total steps = {}'.format(tr, self.global_steps))
                 while not(d or (ep_len == self.max_ep_len)):
                     # Keeping track of current hidden states
                     h_in = h_out
@@ -341,7 +343,8 @@ class SAC:
                     else:
                         a = self.env.action_space.sample()
 
-                    o2, r, d, _ = self.env.step(a)
+                    o2, r, ter, trunc, info = self.env.step(a)
+                    d = ter or trunc
                     ep_ret += r
                     ep_len += 1
 
@@ -377,10 +380,10 @@ class SAC:
                 # Update handling
                 if tr >= self.update_every and tr % self.update_every == 0:
                     self.update()
+                    self._log_trial(self.global_steps, start_time)
 
             self.buffer.reset()
             self.current_epoch += 1
-            self._log_trial(self.global_steps, start_time)
 
     def _log_trial(self, t, start_time):
         trial = (t+1) // self.steps_per_epoch

@@ -9,7 +9,10 @@ import json
 import joblib
 import shutil
 import numpy as np
-import tensorflow as tf
+try:
+    import tensorflow as tf
+except:
+    pass
 import torch
 import os.path as osp
 import time

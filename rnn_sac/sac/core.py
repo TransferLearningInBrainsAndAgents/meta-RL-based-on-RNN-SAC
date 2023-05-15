@@ -62,13 +62,13 @@ class Memory(nn.Module):
                           batch_first=True)
 
     def _one_hot(self, act):
-        return torch.eye(self.act_dim)[act.long(), :].to(self.device)
+        return torch.eye(self.act_dim).to(self.device)[act.long(), :]
 
     def forward(self, obs, prev_act, prev_rew, hid_in,
                 training=False):
 
-        act_enc = self._one_hot(prev_act)
-        obs_enc = self.activation(self.linear1(obs))
+        act_enc = self._one_hot(prev_act).to(self.device)
+        obs_enc = self.activation(self.linear1(obs)).to(self.device)
 
         gru_input = torch.cat(
             [
@@ -110,7 +110,7 @@ class QNetwork(nn.Module):
 
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, device,
-                 hidden_size=[256, 256], activation=nn.ReLU()):
+                 hidden_size=(256, 256), activation=nn.ReLU()):
         super().__init__()
 
         obs_dim = observation_space.shape[0]
