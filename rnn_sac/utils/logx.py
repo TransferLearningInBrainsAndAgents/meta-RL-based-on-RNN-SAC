@@ -9,7 +9,10 @@ import json
 import joblib
 import shutil
 import numpy as np
-import tensorflow as tf
+try:
+    import tensorflow as tf
+except:
+    pass
 import torch
 import os.path as osp
 import time
@@ -196,7 +199,7 @@ class Logger:
             itr: An int, or None. Current iteration of training.
         """
         if proc_id() == 0:
-            fname = 'vars.pkl' if itr is None else 'vars%d.pkl' % itr
+            fname = 'variables.pkl' if itr is None else 'variables_{}.pkl'.format(itr)
             try:
                 joblib.dump(state_dict, osp.join(self.output_dir, fname))
             except:
@@ -272,7 +275,7 @@ class Logger:
                 "First have to setup saving with self.setup_pytorch_saver"
             fpath = 'pyt_save'
             fpath = osp.join(self.output_dir, fpath)
-            fname = 'model' + ('%d' % itr if itr is not None else '') + '.pt'
+            fname = 'actor_critic_model' + ('_{}'.format(itr) if itr is not None else '') + '.pt'
             fname = osp.join(fpath, fname)
             os.makedirs(fpath, exist_ok=True)
             with warnings.catch_warnings():

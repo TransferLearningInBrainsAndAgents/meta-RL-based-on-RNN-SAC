@@ -1,7 +1,8 @@
 import copy
 import time
 import itertools
-
+from datetime import datetime
+import os
 import numpy as np
 
 import torch
@@ -15,13 +16,14 @@ from rnn_sac.utils.logx import EpochLogger
 
 
 class SAC:
-    def __init__(self, env, logger_kwargs=dict(), seed=42,
+    def __init__(self, env, logger_kwargs=dict(), seed=42, max_ep_len=2000,
                  save_freq=1, gamma=0.99, lr=1e-4, ac_kwargs=dict(),
                  polyak=0.995, steps_per_epoch=4000, epochs=1, batch_size=16,
-                 replay_size=int(1e6), time_step=50, hidden_size=256,
-                 start_steps=10000, update_after=1000, update_every=50,
+                 replay_size=int(1e6), hidden_size=256,
+                 start_steps=1000, update_after=1000, update_every=50,
                  exploration_sampling=False, clip_ratio=1.0,
-                 number_of_trajectories=100, use_alpha_annealing=False):
+                 number_of_trajectories=100, use_alpha_annealing=False,
+                 model_file_to_load=None):
 
         self.logger = EpochLogger(**logger_kwargs)
         self.logger.save_config(locals())
@@ -35,7 +37,7 @@ class SAC:
 
         self.save_freq = save_freq
 
-        self.max_ep_len = 200
+        self.max_ep_len = max_ep_len
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
@@ -71,13 +73,13 @@ class SAC:
         self.update_after = update_after
 
         self.batch_size = batch_size
-        self.time_step = time_step
         self.hidden_size = hidden_size
+        self.model_file_to_load = model_file_to_load
+        self.env = env
+        self.ac_kwargs = ac_kwargs
 
         # The online and target networks
-        self.ac = ActorCritic(env.observation_space,
-                              env.action_space, self.device,
-                              **ac_kwargs).to(self.device)
+        self.ac = self.create_or_load_model()
         self.ac_targ = copy.deepcopy(self.ac)
 
         # Set up model saving
@@ -127,6 +129,13 @@ class SAC:
             '\n# of parameters: \t pi: %d, \t q1: %d, \t q2: %d, \t mem: %d\n'
             % var_counts)
 
+    def create_or_load_model(self):
+        if self.model_file_to_load is None:
+            return ActorCritic(self.env.observation_space, self.env.action_space, self.device,
+                               **self.ac_kwargs).to(self.device)
+        else:
+            return torch.load(self.model_file_to_load)
+
     def compute_critic_loss(self, batch):
         obs, act, rew = batch['obs'], batch['act'], batch['rew']
         next_obs, done = batch['obs2'], batch['done']
@@ -170,6 +179,7 @@ class SAC:
         mean_q1 = q1.detach().mean().item()
         mean_q2 = q1.detach().mean().item()
         q_info = dict(Q1Vals=mean_q1, Q2Vals=mean_q2)
+        #self.logger.store(Q1Vals=mean_q1, Q2Vals=mean_q2)
 
         return loss_q, q_info
 
@@ -287,18 +297,28 @@ class SAC:
         return self.ac.act(obs, prev_act, prev_rew, hid_in) if greedy \
             else self.ac.explore(obs, prev_act, prev_rew, hid_in)
 
-    def test_agent(self, test_env, num_test_episodes=10):
+    def test_agent(self, test_env, num_test_episodes=10, random_init=1000):
         self.test_env = test_env
         h = torch.zeros([1, 1, self.hidden_size]).to(self.device)
         a2, r2 = 0, 0
 
         for _ in range(num_test_episodes):
-            o, d, ep_ret, ep_len = self.test_env.reset(), False, 0, 0
+            o, info = self.test_env.reset()
+            d = False
+            ep_len = 0
+            ep_ret = 0
+
+            if random_init:
+                for _ in range(random_init):
+                    a = self.env.action_space.sample()
+                    o2, r, ter, trunc, info = self.env.step(a)
+
             while not(d or (ep_len == self.max_ep_len)):
                 a, h = self.get_action(
                     o, a2, r2, h, greedy=True)
 
-                o2, r, d, _ = self.test_env.step(a)
+                o2, r, ter, trunc, info = self.env.step(a)
+                d = ter or trunc
 
                 o = o2
                 r2 = r
@@ -308,6 +328,7 @@ class SAC:
                 ep_len += 1
 
                 self.global_test_steps += 1
+            self.logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
         self._log_test_trial(self.global_test_steps)
 
     def train_agent(self, env):
@@ -322,12 +343,11 @@ class SAC:
             # Inbetween trials reset the hidden weights
             h_in = torch.zeros([1, 1, self.hidden_size]).to(self.device)
             h_out = torch.zeros([1, 1, self.hidden_size]).to(self.device)
-
             # To sample k trajectories
             for tr in range(self.number_of_trajectories):
                 d, ep_ret, ep_len, ep_max_acc = False, 0, 0, 0
-                o = self.env.reset()
-
+                o, info = self.env.reset()
+                print('Trajectory = {}, Total steps = {}'.format(tr, self.global_steps))
                 while not(d or (ep_len == self.max_ep_len)):
                     # Keeping track of current hidden states
                     h_in = h_out
@@ -341,7 +361,8 @@ class SAC:
                     else:
                         a = self.env.action_space.sample()
 
-                    o2, r, d, _ = self.env.step(a)
+                    o2, r, ter, trunc, info = self.env.step(a)
+                    d = ter or trunc
                     ep_ret += r
                     ep_len += 1
 
@@ -377,10 +398,10 @@ class SAC:
                 # Update handling
                 if tr >= self.update_every and tr % self.update_every == 0:
                     self.update()
+                    self._log_trial(self.global_steps, start_time)
 
             self.buffer.reset()
             self.current_epoch += 1
-            self._log_trial(self.global_steps, start_time)
 
     def _log_trial(self, t, start_time):
         trial = (t+1) // self.steps_per_epoch
