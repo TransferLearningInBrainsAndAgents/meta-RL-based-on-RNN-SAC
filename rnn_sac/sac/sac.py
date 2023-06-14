@@ -18,8 +18,7 @@ from rnn_sac.utils.logx import EpochLogger
 class SAC:
     def __init__(self, env, logger_kwargs=dict(), seed=42, max_ep_len=2000,
                  save_freq=1, gamma=0.99, lr=1e-4, ac_kwargs=dict(),
-                 polyak=0.995, steps_per_epoch=4000, epochs=1, batch_size=16,
-                 replay_size=int(1e6), hidden_size=256,
+                 polyak=0.995, epochs=1, batch_size=16, hidden_size=256,
                  start_steps=1000, update_after=1000, update_every=50,
                  exploration_sampling=False, clip_ratio=1.0,
                  number_of_trajectories=100, use_alpha_annealing=False,
@@ -46,15 +45,14 @@ class SAC:
         self.epochs = epochs
 
         # Number of steps per trial
-        self.steps_per_epoch = steps_per_epoch
-        self.total_steps = steps_per_epoch * epochs
+        #self.steps_per_epoch = steps_per_epoch
+        #self.total_steps = steps_per_epoch * epochs
         self.number_of_trajectories = number_of_trajectories
 
         self.total_traj = 0
         self.current_test_epoch = 0
         self.current_epoch = 0
         self.steps_per_epoch = self.number_of_trajectories * self.max_ep_len
-        replay_size = self.steps_per_epoch
 
         # Meta-testing
         # Increase global steps for the next trial
@@ -95,9 +93,9 @@ class SAC:
 
         # replay buffer to stay close to the idea of updating
         # on the whole trajectories for meta-learning purposes
-        self.buffer = EpisodicBuffer(
-            obs_dim, act_dim, replay_size, self.hidden_size, self.device,
-            use_sac=True, use_exploration_sampling=exploration_sampling)
+        self.buffer = EpisodicBuffer(obs_dim=obs_dim, act_dim=act_dim, size=self.steps_per_epoch,
+                                     hidden_size=self.hidden_size, device=self.device, use_sac=True,
+                                     use_exploration_sampling=exploration_sampling)
 
         # Optimize entropy exploration-exploitation parameter
         self.use_alpha_annealing = use_alpha_annealing
@@ -215,7 +213,7 @@ class SAC:
         return loss_pi, logp_pi, pi_info
 
     def update(self):
-        batch = self.buffer.get(self.batch_size)
+        batch = self.buffer.get(self.batch_size, p_exploration=0.1)
 
         for episode in batch:
             # Optimize Q-networks
@@ -279,8 +277,7 @@ class SAC:
                 p_targ.data.mul_(self.polyak)
                 p_targ.data.add_((1 - self.polyak) * p.data)
 
-    def get_action(self, obs, prev_act, prev_rew, hid_in,
-                   greedy=True):
+    def get_action(self, obs, prev_act, prev_rew, hid_in, greedy=True):
         # obs shape: [1, obs_dim]
         obs = torch.as_tensor(
             obs, dtype=torch.float32).to(self.device).unsqueeze(0)
