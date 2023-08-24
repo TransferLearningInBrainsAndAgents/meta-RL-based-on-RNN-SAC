@@ -110,7 +110,7 @@ class QNetwork(nn.Module):
 
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, device,
-                 hidden_size=[256, 256], activation=nn.ReLU()):
+                 hidden_size=256, activation=nn.ReLU()):
         super().__init__()
 
         obs_dim = observation_space.shape[0]
@@ -118,15 +118,15 @@ class ActorCritic(nn.Module):
         self.device = device
 
         self.memory = Memory(
-            obs_dim, act_dim, device, hidden_size[0], activation=activation)
+            obs_dim, act_dim, device, hidden_size, activation=activation)
         self.pi = CategoricalPolicy(
-            act_dim, hidden_size=hidden_size[0], activation=activation)
+            act_dim, hidden_size=hidden_size, activation=activation)
 
         self.q1 = QNetwork(obs_dim, act_dim,
-                           hidden_size=hidden_size[0],
+                           hidden_size=hidden_size,
                            activation=activation)
         self.q2 = QNetwork(obs_dim, act_dim,
-                           hidden_size=hidden_size[0],
+                           hidden_size=hidden_size,
                            activation=activation)
 
     def act(self, obs, prev_act, prev_rew, hid_in, training=False):

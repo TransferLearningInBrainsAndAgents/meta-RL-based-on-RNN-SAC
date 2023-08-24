@@ -1,13 +1,13 @@
+
 import copy
 import time
 import itertools
-from datetime import datetime
-import os
 import numpy as np
 
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
 from rnn_sac.sac.core import ActorCritic, count_vars
@@ -17,11 +17,12 @@ from rnn_sac.utils.logx import EpochLogger
 
 class SAC:
     def __init__(self, env, logger_kwargs=dict(), seed=42, max_ep_len=2000,
-                 save_freq=1, gamma=0.99, lr=1e-4, ac_kwargs=dict(),
+                 save_freq=1, gamma=0.99, lr=1e-4, gamma_lr=0.5, epochs_to_update_lr=2,
                  polyak=0.995, epochs=1, batch_size=16, hidden_size=256,
                  start_steps=1000, update_after=1000, update_every=50,
                  exploration_sampling=False, clip_ratio=1.0,
                  number_of_trajectories=100, use_alpha_annealing=False,
+                 entropy_target_mult=0.98,
                  model_file_to_load=None):
 
         self.logger = EpochLogger(**logger_kwargs)
@@ -74,7 +75,6 @@ class SAC:
         self.hidden_size = hidden_size
         self.model_file_to_load = model_file_to_load
         self.env = env
-        self.ac_kwargs = ac_kwargs
 
         # The online and target networks
         self.ac = self.create_or_load_model()
@@ -100,9 +100,8 @@ class SAC:
         # Optimize entropy exploration-exploitation parameter
         self.use_alpha_annealing = use_alpha_annealing
         if use_alpha_annealing:
-            self.entropy_target = 0.98 * (-np.log(1 / self.env.action_space.n))
-            self.log_alpha = torch.zeros(
-                1, requires_grad=True, device=self.device)
+            self.entropy_target = entropy_target_mult * (-np.log(1 / self.env.action_space.n))
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.alpha = self.log_alpha.exp()
             self.alpha_optimizer = Adam([self.log_alpha], lr=self.lr)
         else:
@@ -117,7 +116,9 @@ class SAC:
 
         # Set up optimizers for policy and q-function
         self.pi_optimizer = Adam(self.pi_params, lr=self.lr)
+        self.pi_scheduler = StepLR(self.pi_optimizer, step_size=epochs_to_update_lr, gamma=gamma_lr)
         self.q_optimizer = Adam(self.q_params, lr=self.lr)
+        self.q_scheduler = StepLR(self.q_optimizer, step_size=epochs_to_update_lr, gamma=gamma_lr)
 
         # Count variables
         var_counts = tuple(count_vars(module)
@@ -130,7 +131,7 @@ class SAC:
     def create_or_load_model(self):
         if self.model_file_to_load is None:
             return ActorCritic(self.env.observation_space, self.env.action_space, self.device,
-                               **self.ac_kwargs).to(self.device)
+                               hidden_size=self.hidden_size).to(self.device)
         else:
             return torch.load(self.model_file_to_load)
 
@@ -310,9 +311,13 @@ class SAC:
                     a = self.env.action_space.sample()
                     o2, r, ter, trunc, info = self.env.step(a)
 
+            greedy_ratio = 0.8
             while not(d or (ep_len == self.max_ep_len)):
+                greedy = True
+                if np.random.random() > greedy_ratio:
+                    greedy = False
                 a, h = self.get_action(
-                    o, a2, r2, h, greedy=True)
+                    o, a2, r2, h, greedy=greedy)
 
                 o2, r, ter, trunc, info = self.env.step(a)
                 d = ter or trunc
@@ -340,6 +345,7 @@ class SAC:
             # Inbetween trials reset the hidden weights
             h_in = torch.zeros([1, 1, self.hidden_size]).to(self.device)
             h_out = torch.zeros([1, 1, self.hidden_size]).to(self.device)
+
             # To sample k trajectories
             for tr in range(self.number_of_trajectories):
                 d, ep_ret, ep_len, ep_max_acc = False, 0, 0, 0
@@ -399,6 +405,8 @@ class SAC:
 
             self.buffer.reset()
             self.current_epoch += 1
+            self.pi_scheduler.step()
+            self.q_scheduler.step()
 
     def _log_trial(self, t, start_time):
         trial = (t+1) // self.steps_per_epoch
