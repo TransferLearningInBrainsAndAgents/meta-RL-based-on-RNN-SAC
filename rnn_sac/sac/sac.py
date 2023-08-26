@@ -295,7 +295,7 @@ class SAC:
         return self.ac.act(obs, prev_act, prev_rew, hid_in) if greedy \
             else self.ac.explore(obs, prev_act, prev_rew, hid_in)
 
-    def test_agent(self, test_env, num_test_episodes=10, random_init=1000):
+    def test_agent(self, test_env, num_test_episodes=10, random_init=1000, greedy_ratio=0.8):
         self.test_env = test_env
         h = torch.zeros([1, 1, self.hidden_size]).to(self.device)
         a2, r2 = 0, 0
@@ -311,7 +311,6 @@ class SAC:
                     a = self.env.action_space.sample()
                     o2, r, ter, trunc, info = self.env.step(a)
 
-            greedy_ratio = 0.8
             while not(d or (ep_len == self.max_ep_len)):
                 greedy = True
                 if np.random.random() > greedy_ratio:
