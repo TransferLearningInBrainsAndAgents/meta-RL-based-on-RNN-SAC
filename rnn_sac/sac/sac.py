@@ -200,6 +200,7 @@ class SAC:
 
         # Expectation of entropy
         entropy = -torch.sum(pi * logp_pi, dim=1, keepdim=True)
+        self.logger.store(Entropy=entropy.cpy().detach().numpy())
 
         # Expectations of Q
         q = torch.sum(q_pi * pi, dim=1, keepdim=True)
@@ -329,7 +330,7 @@ class SAC:
                 ep_len += 1
 
                 self.global_test_steps += 1
-            self.logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
+            self.logger.store(TestEpRew=ep_ret, TestEpLen=ep_len)
         self._log_test_trial(self.global_test_steps)
 
     def train_agent(self, env):
@@ -391,7 +392,7 @@ class SAC:
                         self.buffer.finish_path()
 
                         if d or (ep_len == self.max_ep_len):
-                            self.logger.store(EpRet=ep_ret, EpLen=ep_len,
+                            self.logger.store(EpRew=ep_ret, EpLen=ep_len,
                                               EpMaxAcc=ep_max_acc)
 
                     # Increase global steps for the next trial
@@ -415,11 +416,13 @@ class SAC:
             self.logger.save_state({'env': self.env}, None)
 
         # Log info about the current trial
-        log_perf_board = ['EpRet', 'EpLen', 'Q2Vals',
+        log_perf_board = ['EpRew', 'EpLen', 'Q2Vals',
                           'Q1Vals', 'LogPi']
         log_loss_board = ['LossPi', 'LossQ']
+        log_entropy_board = ['Entropy', 'Alpha', 'LossAlpha']
         log_board = {'Performance': log_perf_board,
-                     'Loss': log_loss_board}
+                     'Loss': log_loss_board,
+                     'Entropy': log_entropy_board}
 
         # Update tensorboard
         for key, value in log_board.items():
@@ -436,12 +439,13 @@ class SAC:
                         key+'/'+val, mean, t)
 
         self.logger.log_tabular('Trial', trial)
-        self.logger.log_tabular('EpRet', with_min_and_max=True)
+        self.logger.log_tabular('EpRew', with_min_and_max=True)
         self.logger.log_tabular('EpLen', average_only=True)
         self.logger.log_tabular('TotalEnvInteracts', t)
         self.logger.log_tabular('Q2Vals', with_min_and_max=True)
         self.logger.log_tabular('Q1Vals', with_min_and_max=True)
         self.logger.log_tabular('LogPi', with_min_and_max=True)
+        self.logger.log_tabular('Entropy', with_min_and_max=True)
         self.logger.log_tabular('Alpha', average_only=True)
         self.logger.log_tabular('LossAlpha', average_only=True)
         self.logger.log_tabular('LossPi', average_only=True)
@@ -459,7 +463,7 @@ class SAC:
 
         # Log info about the current trial
         log_board = {
-            'Performance': ['TestEpRet', 'TestEpLen']}
+            'Performance': ['TestEpRew', 'TestEpLen']}
 
         # Update tensorboard
         for key, value in log_board.items():
