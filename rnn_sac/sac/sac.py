@@ -413,7 +413,7 @@ class SAC:
 
         # Save model
         if (trial % self.save_freq == 0) or (trial == self.epochs):
-            self.logger.save_state({'env': self.env}, None)
+            self.logger.save_state({'env': self.env}, trial)
 
         # Log info about the current trial
         log_perf_board = ['EpRew', 'EpLen', 'Q2Vals',
