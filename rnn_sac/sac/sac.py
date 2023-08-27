@@ -200,7 +200,7 @@ class SAC:
 
         # Expectation of entropy
         entropy = -torch.sum(pi * logp_pi, dim=1, keepdim=True)
-        self.logger.store(Entropy=entropy.cpy().detach().numpy())
+        self.logger.store(Entropy=entropy.cpu().detach().numpy())
 
         # Expectations of Q
         q = torch.sum(q_pi * pi, dim=1, keepdim=True)
