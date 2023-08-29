@@ -17,9 +17,9 @@ from rnn_sac.utils.logx import EpochLogger
 
 class SAC:
     def __init__(self, env, logger_kwargs=dict(), seed=42, max_ep_len=2000,
-                 save_freq=1, gamma=0.99, lr=1e-4, gamma_lr=0.5, epochs_to_update_lr=2,
+                 save_every_n_update=1, gamma=0.99, lr=1e-4, gamma_lr=0.5, epochs_to_update_lr=2,
                  polyak=0.995, epochs=1, batch_size=16, hidden_size=256,
-                 start_steps=1000, update_after=1000, update_every=50,
+                 start_steps=1000, update_every=50,
                  exploration_sampling=False, clip_ratio=1.0,
                  number_of_trajectories=100, use_alpha_annealing=False,
                  entropy_target_mult=0.98,
@@ -35,7 +35,7 @@ class SAC:
         torch.manual_seed(seed)
         np.random.seed(seed)
 
-        self.save_freq = save_freq
+        self.save_freq = save_every_n_update * update_every
 
         self.max_ep_len = max_ep_len
 
@@ -69,7 +69,6 @@ class SAC:
         self.update_multiplier = 20
         self.start_steps = start_steps
         self.update_every = update_every
-        self.update_after = update_after
 
         self.batch_size = batch_size
         self.hidden_size = hidden_size
@@ -409,11 +408,12 @@ class SAC:
             self.q_scheduler.step()
 
     def _log_trial(self, t, start_time):
-        trial = (t+1) // self.steps_per_epoch
-
+        epoch = t // (self.max_ep_len * self.number_of_trajectories)
+        trajectory = (t // self.max_ep_len) - 1 - epoch * self.number_of_trajectories
+        print(t, trajectory, epoch)
         # Save model
-        if (trial % self.save_freq == 0) or (trial == self.epochs):
-            self.logger.save_state({'env': self.env}, trial)
+        if (trajectory % self.save_freq == 0) or (trajectory == self.number_of_trajectories - 1):
+            self.logger.save_state({'env': self.env}, '{}_{}'.format(epoch, trajectory))
 
         # Log info about the current trial
         log_perf_board = ['EpRew', 'EpLen', 'Q2Vals',
@@ -438,7 +438,7 @@ class SAC:
                     self.summary_writer.add_scalar(
                         key+'/'+val, mean, t)
 
-        self.logger.log_tabular('Trial', trial)
+        self.logger.log_tabular('Trial', trajectory)
         self.logger.log_tabular('EpRew', with_min_and_max=True)
         self.logger.log_tabular('EpLen', average_only=True)
         self.logger.log_tabular('TotalEnvInteracts', t)
