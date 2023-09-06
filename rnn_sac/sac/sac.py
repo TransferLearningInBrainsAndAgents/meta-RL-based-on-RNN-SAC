@@ -298,13 +298,18 @@ class SAC:
     def test_agent(self, test_env, num_test_episodes=10, random_init=1000, greedy_ratio=0.8):
         self.test_env = test_env
         h = torch.zeros([1, 1, self.hidden_size]).to(self.device)
+        observations = {}
+        rewards = {}
         a2, r2 = 0, 0
 
-        for _ in range(num_test_episodes):
+        for ep in range(num_test_episodes):
             o, info = self.test_env.reset()
             d = False
             ep_len = 0
-            ep_ret = 0
+            ep_rew = 0
+
+            observations[ep] = []
+            rewards[ep] = []
 
             if random_init:
                 for _ in range(random_init):
@@ -325,12 +330,17 @@ class SAC:
                 r2 = r
                 a2 = a
 
-                ep_ret += r
+                observations[ep].append(o)
+                rewards[ep].append(r)
+                ep_rew += r
                 ep_len += 1
 
                 self.global_test_steps += 1
-            self.logger.store(TestEpRew=ep_ret, TestEpLen=ep_len)
+            self.logger.store(TestEpRew=ep_rew, TestEpLen=ep_len)
+            print(ep_rew)
         self._log_test_trial(self.global_test_steps)
+
+        return observations, rewards
 
     def train_agent(self, env):
         # Prepare for interaction with environment
@@ -410,7 +420,7 @@ class SAC:
     def _log_trial(self, t, start_time):
         epoch = t // (self.max_ep_len * self.number_of_trajectories)
         trajectory = (t // self.max_ep_len) - 1 - epoch * self.number_of_trajectories
-        print(t, trajectory, epoch)
+
         # Save model
         if (trajectory % self.save_freq == 0) or (trajectory == self.number_of_trajectories - 1):
             self.logger.save_state({'env': self.env}, '{}_{}'.format(epoch, trajectory))
