@@ -350,7 +350,7 @@ class SAC:
         # RL^2 variables
         a2, r2 = 0, 0
 
-        for _ in range(self.epochs):
+        for epoch in range(self.epochs):
             # Inbetween trials reset the hidden weights
             h_in = torch.zeros([1, 1, self.hidden_size]).to(self.device)
             h_out = torch.zeros([1, 1, self.hidden_size]).to(self.device)
@@ -403,26 +403,26 @@ class SAC:
                         if d or (ep_len == self.max_ep_len):
                             self.logger.store(EpRew=ep_ret, EpLen=ep_len,
                                               EpMaxAcc=ep_max_acc)
-
                     # Increase global steps for the next trial
                     self.global_steps += 1
 
                 # Update handling
-                if tr >= self.update_every and tr % self.update_every == 0:
+                if (tr+1) >= self.update_every and (tr+1) % self.update_every == 0:
                     self.update()
-                    self._log_trial(self.global_steps, start_time)
+                    self._log_trial(epoch, tr, start_time)
 
             self.buffer.reset()
             self.current_epoch += 1
             self.pi_scheduler.step()
             self.q_scheduler.step()
 
-    def _log_trial(self, t, start_time):
-        epoch = t // (self.max_ep_len * self.number_of_trajectories)
-        trajectory = (t // self.max_ep_len) - 1 - epoch * self.number_of_trajectories
-
+    def _log_trial(self, epoch, trajectory, start_time):
+        #epoch = t // (self.max_ep_len * self.number_of_trajectories)
+        #trajectory = (t // self.max_ep_len) - 1 - epoch * self.number_of_trajectories
+        t = (epoch * self.number_of_trajectories + trajectory) * self.max_ep_len
         # Save model
-        if (trajectory % self.save_freq == 0) or (trajectory == self.number_of_trajectories - 1):
+        print(self.save_freq, epoch, trajectory)
+        if ((trajectory + 1) % self.save_freq == 0) or (trajectory + 1 == self.number_of_trajectories):
             self.logger.save_state({'env': self.env}, '{}_{}'.format(epoch, trajectory))
 
         # Log info about the current trial

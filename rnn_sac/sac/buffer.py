@@ -73,13 +73,13 @@ class EpisodicBuffer:
         else:
             self.hxs_buf[self.ptr] = hidden
 
-        # self.ptr += 1
         self.ptr = (self.ptr+1) % self.max_size
         self.size = min(self.size+1, self.max_size)
 
     def finish_path_sac(self):
 
-        path_slice = slice(self.path_start_idx, self.ptr)
+        slice_end = self.ptr if self.ptr != 0 else self.size
+        path_slice = slice(self.path_start_idx, slice_end)
 
         # Exploitation batch
         data = dict(obs=self.obs_buf[path_slice],
