@@ -219,6 +219,16 @@ class EpisodicBuffer:
         np.random.shuffle(self.exploitation_batch)
         return self.exploitation_batch
 
+    def create_tensor_batch(self, batch):
+        tensor_dict = {k: torch.empty((len(batch), batch[0][k].shape[0], batch[0][k].shape[1])) if len(v.shape) > 1 else
+                       torch.empty((len(batch), batch[0][k].shape[0])) for k, v in batch[0].items()}
+
+        for i, traj in enumerate(batch):
+            for k,v in traj.items():
+                tensor_dict[k][i] = v
+
+        return tensor_dict
+
     def reset(self):
         self.obs_buf = np.zeros_like(self.obs_buf)
         self.next_obs_buf = np.zeros_like(self.next_obs_buf)

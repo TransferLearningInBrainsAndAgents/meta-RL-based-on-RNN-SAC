@@ -81,9 +81,9 @@ class Memory(nn.Module):
 
         # Input rnn: (batch size, sequence length, features)
         if training:
-            gru_input = gru_input.unsqueeze(0)
+            #gru_input = gru_input.unsqueeze(0)
             gru_out, hid_out = self.gru(gru_input, hid_in)
-            gru_out = gru_out.squeeze(0)
+            #gru_out = gru_out.squeeze(0)
         else:
             gru_input = gru_input.unsqueeze(1)
             gru_out, hid_out = self.gru(gru_input, hid_in)

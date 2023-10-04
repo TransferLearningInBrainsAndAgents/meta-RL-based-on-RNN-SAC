@@ -139,16 +139,16 @@ class SAC:
         next_obs, done = batch['obs2'], batch['done']
 
         # RL^2 variables
-        h_out = batch['hid_out'].view(1, 1, self.hidden_size)
+        h_out = batch['hid_out'].view(1, -1, self.hidden_size)
 
-        rew = rew.view(-1, 1)
+        rew = rew.unsqueeze(-1)
 
         # Current online network q values
         q1 = self.ac.q1(obs)
         q2 = self.ac.q2(obs)
 
-        q1 = q1.gather(1, act.view(-1, 1).long())
-        q2 = q2.gather(1, act.view(-1, 1).long())
+        q1 = q1.gather(-1, act.unsqueeze(-1).long()).squeeze(-1)
+        q2 = q2.gather(-1, act.unsqueeze(-1,).long()).squeeze(-1)
 
         # Target actions come from *current* policy
         with torch.no_grad():
@@ -163,9 +163,11 @@ class SAC:
 
             # To map R^|A| -> R
             next_q = (a2 * (q_targ - self.alpha * logp_a2)
-                      ).sum(dim=1, keepdim=True)
+                      ).sum(dim=2, keepdim=True)
 
         assert rew.shape == next_q.shape
+        rew = rew.squeeze(-1)
+        next_q = next_q.squeeze(-1)
         backup = rew + self.gamma * (1 - done) * next_q
 
         # MSE loss against Bellman backup
@@ -185,8 +187,8 @@ class SAC:
         obs = batch['obs']
 
         # RL^2 variables
-        prev_act, prev_rew = batch['prev_act'], batch['prev_rew'].view(-1, 1)
-        h_in = batch['hid'].view(1, 1, self.hidden_size)
+        prev_act, prev_rew = batch['prev_act'], batch['prev_rew'].unsqueeze(-1)
+        h_in = batch['hid'].unsqueeze(0)
 
         memory_emb, _ = self.ac.memory(
             obs, prev_act, prev_rew, h_in, training=True)
@@ -198,11 +200,11 @@ class SAC:
             q_pi = torch.min(q1_pi, q2_pi)
 
         # Expectation of entropy
-        entropy = -torch.sum(pi * logp_pi, dim=1, keepdim=True)
-        self.logger.store(Entropy=entropy.cpu().detach().numpy())
+        entropy = -torch.sum(pi * logp_pi, dim=-1, keepdim=True)
+        self.logger.store(Entropy=entropy.cpu().detach().numpy().mean())
 
         # Expectations of Q
-        q = torch.sum(q_pi * pi, dim=1, keepdim=True)
+        q = torch.sum(q_pi * pi, dim=-1, keepdim=True)
 
         # Entropy-regularized policy loss
         loss_pi = (- q - self.alpha * entropy).mean()
@@ -215,54 +217,54 @@ class SAC:
 
     def update(self):
         batch = self.buffer.get(self.batch_size, p_exploration=0.1)
+        tensor_batch = self.buffer.create_tensor_batch(batch)
 
-        for episode in batch:
-            # Optimize Q-networks
-            # First run one gradient descent step for Q1 and Q2
-            loss_q, q_info = self.compute_critic_loss(episode)
+        # TRAIN THE Q
+        loss_q, q_info = self.compute_critic_loss(tensor_batch)
 
-            self.q_optimizer.zero_grad()
-            loss_q.backward()
-            nn.utils.clip_grad_norm_(self.ac.parameters(), self.clip_ratio)
-            self.q_optimizer.step()
+        self.q_optimizer.zero_grad()
+        loss_q.backward()
+        nn.utils.clip_grad_norm_(self.ac.parameters(), self.clip_ratio)
+        self.q_optimizer.step()
 
-            # Recording Q-values
-            self.logger.store(LossQ=loss_q.item(), **q_info)
+        # Recording Q-values
+        self.logger.store(LossQ=loss_q.item(), **q_info)
 
-            # Freeze Q-networks so you don't waste computational effort
-            # computing gradients for them during the policy learning step.
-            for p in self.q_params:
-                p.requires_grad = False
+        # TRAIN THE P
+        # Freeze Q-networks so you don't waste computational effort
+        # computing gradients for them during the policy learning step.
+        for p in self.q_params:
+            p.requires_grad = False
 
-            # Optimize the Policy
-            # Next run one gradient descent step for pi.
-            self.pi_optimizer.zero_grad()
-            loss_pi, logp_pi, pi_info = self.compute_policy_loss(episode)
+        # Optimize the Policy
+        # Next run one gradient descent step for pi.
+        self.pi_optimizer.zero_grad()
+        loss_pi, logp_pi, pi_info = self.compute_policy_loss(tensor_batch)
 
-            loss_pi.backward()
-            nn.utils.clip_grad_norm_(self.ac.parameters(), self.clip_ratio)
-            self.pi_optimizer.step()
+        loss_pi.backward()
+        nn.utils.clip_grad_norm_(self.ac.parameters(), self.clip_ratio)
+        self.pi_optimizer.step()
 
-            # Unfreeze Q-networks so you can optimize it at next DDPG step.
-            for p in self.q_params:
-                p.requires_grad = True
+        # Unfreeze Q-networks so you can optimize it at next DDPG step.
+        for p in self.q_params:
+            p.requires_grad = True
 
-            # Recording policy values
-            self.logger.store(LossPi=loss_pi.item(), **pi_info)
+        # Recording policy values
+        self.logger.store(LossPi=loss_pi.item(), **pi_info)
 
-            # Optimize the alpha
-            # Entropy values
-            if self.use_alpha_annealing:
-                alpha_loss = -(self.log_alpha * (logp_pi.detach() +
-                                                 self.entropy_target)).mean()
+        # TRAIN THE ALPHA
+        # Entropy values
+        if self.use_alpha_annealing:
+            alpha_loss = -(self.log_alpha * (logp_pi.detach() +
+                                             self.entropy_target)).mean()
 
-                self.alpha_optimizer.zero_grad()
-                alpha_loss.backward()
-                self.alpha_optimizer.step()
-                self.alpha = self.log_alpha.exp()
-            else:
-                alpha_loss = torch.tensor(0)
-                self.alpha = torch.tensor(0.2)
+            self.alpha_optimizer.zero_grad()
+            alpha_loss.backward()
+            self.alpha_optimizer.step()
+            self.alpha = self.log_alpha.exp()
+        else:
+            alpha_loss = torch.tensor(0)
+            self.alpha = torch.tensor(0.2)
 
         # Recording alpha and alpha loss
         self.logger.store(LossAlpha=alpha_loss.cpu().detach().numpy(),
@@ -406,6 +408,7 @@ class SAC:
                     # Increase global steps for the next trial
                     self.global_steps += 1
 
+                print('Trajectory reward = {}'.format(ep_ret))
                 # Update handling
                 if (tr+1) >= self.update_every and (tr+1) % self.update_every == 0:
                     self.update()
@@ -421,7 +424,6 @@ class SAC:
         #trajectory = (t // self.max_ep_len) - 1 - epoch * self.number_of_trajectories
         t = (epoch * self.number_of_trajectories + trajectory) * self.max_ep_len
         # Save model
-        print(self.save_freq, epoch, trajectory)
         if ((trajectory + 1) % self.save_freq == 0) or (trajectory + 1 == self.number_of_trajectories):
             self.logger.save_state({'env': self.env}, '{}_{}'.format(epoch, trajectory))
 
