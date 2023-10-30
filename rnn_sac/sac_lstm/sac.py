@@ -10,8 +10,8 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
-from rnn_sac.sac.core import ActorCritic, count_vars
-from rnn_sac.sac.buffer import EpisodicBuffer
+from rnn_sac.sac_lstm.core import ActorCritic, count_vars
+from rnn_sac.sac_lstm.buffer import EpisodicBuffer
 from rnn_sac.utils.logx import EpochLogger
 
 
@@ -377,9 +377,6 @@ class SAC:
                     d = ter or trunc
                     ep_ret += r
                     ep_len += 1
-
-                    if r != 0:
-                        print('{}:{}'.format(a, r), end=', ')
 
                     # Ignore the "done" signal if it comes from hitting the
                     # time horizon (that is, when it's an artificial terminal

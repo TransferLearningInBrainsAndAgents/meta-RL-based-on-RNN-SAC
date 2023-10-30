@@ -10,8 +10,8 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
-from rnn_sac.sac.core import ActorCritic, count_vars
-from rnn_sac.sac.buffer import EpisodicBuffer
+from rnn_sac.sac_trans.core import ActorCritic, count_vars
+from rnn_sac.sac_trans.buffer import EpisodicBuffer
 from rnn_sac.utils.logx import EpochLogger
 
 
@@ -216,9 +216,7 @@ class SAC:
         return loss_pi, logp_pi, pi_info
 
     def update(self):
-        batch = self.buffer.get(self.Neurology Editorial Committee
-Medical Research Archives
-European Society of Medicine, p_exploration=0.1)
+        batch = self.buffer.get(self.batch_size, p_exploration=0.1)
         tensor_batch = self.buffer.create_tensor_batch(batch)
 
         # TRAIN THE Q
