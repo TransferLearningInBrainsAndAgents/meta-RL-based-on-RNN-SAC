@@ -56,6 +56,7 @@ class Memory(nn.Module):
         self.device = device
 
         self.linear1 = nn.Linear(obs_dim, hidden_size)
+        torch.nn.init.xavier_uniform(self.linear1.weight)
         # +1 for the reward
         self.gru = nn.GRU(hidden_size+act_dim+1,
                           hidden_size,
@@ -100,6 +101,7 @@ class QNetwork(nn.Module):
         self.activation = activation
 
         self.linear1 = nn.Linear(obs_dim, hidden_size)
+        torch.nn.init.xavier_uniform(self.linear1.weight)
         self.q = nn.Linear(hidden_size, act_dim)
 
     def forward(self, memory_emb):
